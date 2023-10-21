@@ -1,5 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createUseStyles } from "react-jss";
+import { useCheckAfterFrame } from "./hooks/useCheckAfterFrame";
 import ChevronDown from "./assets/ChevronDown";
 import Check from "./assets/Check";
 
@@ -80,63 +81,76 @@ export interface SelectDropdownProps {
   optionsList: string[];
   onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void;
 }
-
+// Component that renders a Select with a dropdown menu
+// Adheres to WAI-ARIA standards of combo-box with listbox dropdown
 const SelectDropdown = ({ name, optionsList }: SelectDropdownProps) => {
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const jssClasses = useStyles();
 
-  const handleSelectKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (
-    e
-  ) => {
-    switch (e.key) {
-      case "ArrowUp":
-        setSelectedIndex(Math.max(selectedIndex - 1, 0));
-        break;
-      case "ArrowDown":
-        if (isOptionsOpen) {
-          setSelectedIndex(Math.min(selectedIndex + 1, optionsList.length - 1));
-        } else {
-          setIsOptionsOpen(true);
-        }
-        break;
-      case "Escape":
-        setIsOptionsOpen(false);
-        break;
-      default:
-        break;
-    }
-  };
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-  const handleListItemKeyDown: (
-    index: number
-  ) => React.KeyboardEventHandler<HTMLLIElement> = (index: number) => (e) => {
-    switch (e.key) {
-      case "Enter":
-        e.preventDefault();
-        setSelectedIndex(index);
-        setIsOptionsOpen(false);
-        break;
-      default:
-        break;
+  const handleSelectKeyDown = useCallback<
+    React.KeyboardEventHandler<HTMLDivElement>
+  >(
+    (e) => {
+      switch (e.key) {
+        case "ArrowUp":
+          setHighlightedIndex(Math.max(highlightedIndex - 1, 0));
+          break;
+        case "ArrowDown":
+          if (isOptionsOpen) {
+            setHighlightedIndex(
+              Math.min(highlightedIndex + 1, optionsList.length - 1)
+            );
+          } else {
+            setIsOptionsOpen(true);
+          }
+          break;
+        case "Escape":
+          setHighlightedIndex(selectedIndex);
+          setIsOptionsOpen(false);
+          break;
+        case "Enter":
+          e.preventDefault();
+          setSelectedIndex(highlightedIndex);
+          setIsOptionsOpen(false);
+          break;
+        default:
+          break;
+      }
+    },
+    [highlightedIndex, selectedIndex, optionsList, isOptionsOpen]
+  );
+
+  const onContainerFocusOutside = useCheckAfterFrame(() => {
+    // this condition checks and closes the menu only if the focused element is not inside select menu, contains is a dom method
+    if (!containerRef.current?.contains(document.activeElement)) {
+      setIsOptionsOpen(false);
     }
-  };
+  });
+
+  useEffect(() => {
+    //scrolling to highlighted element by getting element from dom
+    if (isOptionsOpen) {
+      const element = document.getElementById(optionsList[highlightedIndex]);
+      if (element) {
+        element.scrollIntoView({
+          behavior: "auto",
+          block: "center",
+        });
+      }
+    }
+  }, [isOptionsOpen, highlightedIndex]);
 
   return (
     <div
       className={jssClasses.container}
       ref={containerRef}
       onKeyDown={handleSelectKeyDown}
-      onBlur={() => {
-        // BEST PRACTICE: add useFocusWithin hook from react-aria package
-        requestAnimationFrame(() => {
-          // this condition checks and closes the menu only if the focused element is not inside select menu
-          if (!containerRef.current?.contains(document.activeElement)) {
-            setIsOptionsOpen(false);
-          }
-        });
-      }}
+      onBlur={onContainerFocusOutside}
     >
       <button
         type="button"
@@ -164,6 +178,7 @@ const SelectDropdown = ({ name, optionsList }: SelectDropdownProps) => {
         id="listoptions"
         aria-label={name}
         tabIndex={-1}
+        ref={listRef}
       >
         {optionsList.map((option, index) => (
           <li
@@ -171,11 +186,14 @@ const SelectDropdown = ({ name, optionsList }: SelectDropdownProps) => {
             id={option}
             role="option"
             aria-selected={selectedIndex == index}
-            tabIndex={0}
+            tabIndex={-1}
             className={`${jssClasses.selectableOption}`}
-            onKeyDown={handleListItemKeyDown(index)}
+            style={{
+              outline: highlightedIndex == index ? "2px solid #0004" : "",
+            }}
             onClick={() => {
               setSelectedIndex(index);
+              setHighlightedIndex(index);
               setIsOptionsOpen(false);
             }}
           >
